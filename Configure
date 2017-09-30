@@ -330,6 +330,38 @@ then
         fi
     fi
 
+    echo "Do you want to enable the MMAL capture module? (y or n)"
+    echo -n "Enter : "
+    read ANS
+    if [ "$ANS" = "y" ]
+    then
+        INPUT_MMAL="y"
+    elif [ "$ANS" = "n" ]
+    then
+        INPUT_MMAL="n"
+    else
+        echo "Please enter y or n."
+        exit 0
+    fi
+    if [ "$INPUT_MMAL" = "y" ]
+    then
+        if [ "$DEFAULT_CAP_DEVICE" = "" ]
+        then
+            echo "Do you want to use it as the default input device? (y or n)"
+            echo -n "Enter : "
+            read ANS
+            if [ "$ANS" = "y" ]
+            then
+                DEFAULT_CAP_DEVICE="MMAL"
+            elif [ "$ANS" = "n" ]
+            then
+                DEFAULT_CAP_DEVICE=""
+            else
+                echo "Please enter y or n."
+                exit 0
+            fi
+        fi
+    fi
 
     if [ "$CLANGCC" = "y" ]
     then
@@ -344,7 +376,12 @@ then
         CXX="g++ -std=c++11 "
         #CFLAG="-O"
         #CFLAG="-O3 -march=pentium4"
-        CFLAG="-O3 -fPIC -march=core2 -DHAVE_NFT=1"
+	if [ "$MACHINE" = "armv7l" ]
+	then
+	    CFLAG="-O3 -fPIC -march=armv6 -DHAVE_NFT=1 -mfpu=vfp -mfloat-abi=hard -ftree-vectorize -pipe"
+	else
+	    CFLAG="-O3 -fPIC -march=core2 -DHAVE_NFT=1"
+	fi	
         STDCXXLIB="-lstdc++"
     fi
 
@@ -352,6 +389,10 @@ then
     then
         CFLAG="$CFLAG -I/usr/include/x86_64-linux-gnu"
         LDFLAG="-L/usr/lib/x86_64-linux-gnu -L/usr/lib64"
+    elif [ "$MACHINE" = "armv7l" ]
+    then
+	CFLAG="$CFLAG -I/usr/include/arm-linux-gnueabihf"
+	LDFLAG="-L/usr/lib/arm-linux-gnueabihf -L/usr/lib"
     else
         CFLAG="$CFLAG -I/usr/include/i386-linux-gnu"
         LDFLAG="-L/usr/lib/i386-linux-gnu -L/usr/lib"
@@ -368,6 +409,13 @@ then
 		GST_LIBS=`pkg-config --libs gstreamer-0.10`
         CFLAG="$CFLAG $GST_CFLAGS"
         LIBS="$LIBS $GST_LIBS"
+    fi
+    if [ "$INPUT_MMAL" = "y" ]
+    then
+        MMAL_CFLAGS="-I/opt/vc/include/interface"
+	MMAL_LIBS="-lmmal -lmmal_core -lmmal_util"
+        CFLAG="$CFLAG $MMAL_CFLAGS"
+        LIBS="$LIBS $MMAL_LIBS"
     fi
     if [ "$INPUT_CAM1394" = "y" ]
     then
@@ -676,6 +724,13 @@ s/#(cd VideoGStreamer;    make -f Makefile)/(cd VideoGStreamer;    make -f Makef
 EOF
 fi
 
+if [ "$INPUT_MMAL" = "y" ]
+then
+cat >> $SED <<EOF
+s/#(cd VideoMMAL;    make -f Makefile)/(cd VideoMMAL;    make -f Makefile)/
+EOF
+fi
+
 if [ "$INPUT_SGI" = "y" ]
 then
 cat >> $SED <<EOF
@@ -810,6 +865,13 @@ s/#undef  AR_INPUT_GSTREAMER/#define AR_INPUT_GSTREAMER/
 EOF
 fi
 
+if [ "$INPUT_MMAL" = "y" ]
+then
+cat >> $SED <<EOF
+s/#undef  AR_INPUT_MMAL/#define AR_INPUT_MMAL/
+EOF
+fi
+
 if [ "$INPUT_IMAGE" = "y" ]
 then
 cat >> $SED <<EOF
@@ -848,6 +910,11 @@ elif [ "$DEFAULT_CAP_DEVICE" = "GSTREAMER" ]
 then
 cat >> $SED <<EOF
 s/#undef  AR_DEFAULT_INPUT_GSTREAMER/#define AR_DEFAULT_INPUT_GSTREAMER/
+EOF
+elif [ "$DEFAULT_CAP_DEVICE" = "MMAL" ]
+then
+cat >> $SED <<EOF
+s/#undef  AR_DEFAULT_INPUT_MMAL/#define AR_DEFAULT_INPUT_MMAL/
 EOF
 elif [ "$E" = "Linux" ]
 then

@@ -31,7 +31,7 @@
  *  Copyright 2015 Daqri, LLC.
  *  Copyright 2002-2015 ARToolworks, Inc.
  *
- *  Author(s): Hirokazu Kato, Atsishi Nakazawa, Philip Lamb
+ *  Author(s): Hirokazu Kato, Atsishi Nakazawa, Philip Lamb, the78est herry
  *
  */
 /*******************************************************
@@ -76,7 +76,8 @@ extern "C" {
 #define  AR_VIDEO_DEVICE_WINDOWS_MEDIA_FOUNDATION 16
 #define  AR_VIDEO_DEVICE_WINDOWS_MEDIA_CAPTURE 17
 #define  AR_VIDEO_DEVICE_V4L2               18
-#define  AR_VIDEO_DEVICE_MAX                18
+#define	 AR_VIDEO_DEVICE_MMAL		    19	
+#define  AR_VIDEO_DEVICE_MAX                19
 
 
 #define  AR_VIDEO_1394_BRIGHTNESS                      65
@@ -266,6 +267,9 @@ typedef void (*AR_VIDEO_FRAME_READY_CALLBACK)(void *);
 #ifdef AR_INPUT_WINDOWS_MEDIA_CAPTURE
 #include <AR/sys/videoWindowsMediaCapture.h>
 #endif
+#ifdef AR_INPUT_MMAL
+#include <AR/sys/videoMMAL.h>
+#endif
     
 
 typedef union {
@@ -319,6 +323,9 @@ typedef union {
 #endif
 #ifdef AR_INPUT_WINDOWS_MEDIA_CAPTURE
     AR2VideoParamWinMCT         *winMC;
+#endif
+#ifdef AR_INPUT_MMAL
+    AR2VideoParamMMALT     	*mmal;
 #endif
 } AR2VideoDeviceHandleT;
 

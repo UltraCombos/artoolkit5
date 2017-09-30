@@ -78,6 +78,8 @@ int arVideoGetDefaultDevice( void )
     return AR_VIDEO_DEVICE_WINDOWS_MEDIA_FOUNDATION;
 #elif defined(AR_DEFAULT_INPUT_WINDOWS_MEDIA_CAPTURE)
     return AR_VIDEO_DEVICE_WINDOWS_MEDIA_CAPTURE;
+#elif defined(AR_DEFAULT_INPUT_MMAL)
+    return AR_VIDEO_DEVICE_MMAL;
 #else
     return AR_VIDEO_DEVICE_DUMMY;
 #endif
