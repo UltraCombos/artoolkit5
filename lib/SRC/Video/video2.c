@@ -125,6 +125,10 @@ static int ar2VideoGetDeviceWithConfig(const char *config, const char **configSt
                 device = AR_VIDEO_DEVICE_GSTREAMER;
                 if (configStringFollowingDevice_p) *configStringFollowingDevice_p = a;
             }
+            else if ( strcmp( b, "-device=MMAL" ) == 0 ) {
+            	device = AR_VIDEO_DEVICE_MMAL;
+            	//if (configStringFollowingDevice_p) *configStringFollowingDevice_p = a;
+            }                        
             else if( strcmp( b, "-device=iPhone" ) == 0 )    {
                 device = AR_VIDEO_DEVICE_IPHONE;
             }
@@ -143,7 +147,6 @@ static int ar2VideoGetDeviceWithConfig(const char *config, const char **configSt
             else if( strcmp( b, "-device=WinMC" ) == 0 )    {
                 device = AR_VIDEO_DEVICE_WINDOWS_MEDIA_CAPTURE;
             }
-            
             while( *a != ' ' && *a != '\t' && *a != '\0') a++;
         }
     }
@@ -193,6 +196,11 @@ ARVideoSourceInfoListT *ar2VideoCreateSourceInfoList(const char *config_in)
         return (NULL);
     }
 #endif
+#ifdef AR_INPUT_MMAL
+    if (device == AR_VIDEO_DEVICE_MMAL) {
+        return (NULL);
+    }
+#endif    
 #ifdef AR_INPUT_SGI
     if (device == AR_VIDEO_DEVICE_SGI) {
         return (NULL);
@@ -321,6 +329,13 @@ AR2VideoParamT *ar2VideoOpen( const char *config_in )
         ARLOGe("ar2VideoOpen: Error: device \"GStreamer\" not supported on this build/architecture/system.\n");
 #endif
     }
+    if( vid->deviceType == AR_VIDEO_DEVICE_MMAL ) {
+#ifdef AR_INPUT_MMAL
+        if( (vid->device.mmal = ar2VideoOpenMMAL(config)) != NULL ) return vid;
+#else
+        ARLOGe("ar2VideoOpen: Error: device \"MMAL\" not supported on this build/architecture/system.\n");
+#endif
+    }    
     if( vid->deviceType == AR_VIDEO_DEVICE_SGI ) {
 #ifdef AR_INPUT_SGI
         if( (vid->device.sgi = ar2VideoOpenSGI(config)) != NULL ) return vid;
@@ -466,6 +481,11 @@ int ar2VideoClose( AR2VideoParamT *vid )
         ret = ar2VideoCloseGStreamer( vid->device.gstreamer );
     }
 #endif
+#ifdef AR_INPUT_MMAL
+    if( vid->deviceType == AR_VIDEO_DEVICE_MMAL ) {
+        ret = ar2VideoCloseMMAL( vid->device.mmal );
+    }
+#endif    
 #ifdef AR_INPUT_SGI
     if( vid->deviceType == AR_VIDEO_DEVICE_SGI ) {
         ret = ar2VideoCloseSGI( vid->device.sgi );
@@ -558,6 +578,11 @@ int ar2VideoDispOption( AR2VideoParamT *vid )
         return ar2VideoDispOptionGStreamer();
     }
 #endif
+#ifdef AR_INPUT_MMAL
+    if( vid->deviceType == AR_VIDEO_DEVICE_MMAL ) {
+        return ar2VideoDispOptionMMAL();
+    }
+#endif    
 #ifdef AR_INPUT_SGI
     if( vid->deviceType == AR_VIDEO_DEVICE_SGI ) {
         return ar2VideoDispOptionSGI();
@@ -655,6 +680,11 @@ int ar2VideoGetId( AR2VideoParamT *vid, ARUint32 *id0, ARUint32 *id1 )
         return ar2VideoGetIdGStreamer( vid->device.gstreamer, id0, id1 );
     }
 #endif
+#ifdef AR_INPUT_MMAL
+    if( vid->deviceType == AR_VIDEO_DEVICE_MMAL ) {
+        return ar2VideoGetIdMMAL( vid->device.mmal, id0, id1 );
+    }
+#endif    
 #ifdef AR_INPUT_SGI
     if( vid->deviceType == AR_VIDEO_DEVICE_SGI ) {
         return ar2VideoGetIdSGI( vid->device.sgi, id0, id1 );
@@ -746,6 +776,11 @@ int ar2VideoGetSize(AR2VideoParamT *vid, int *x,int *y)
         return ar2VideoGetSizeGStreamer( vid->device.gstreamer, x, y );
     }
 #endif
+#ifdef AR_INPUT_MMAL
+    if( vid->deviceType == AR_VIDEO_DEVICE_MMAL ) {
+        return ar2VideoGetSizeMMAL( vid->device.mmal, x, y );
+    }
+#endif    
 #ifdef AR_INPUT_SGI
     if( vid->deviceType == AR_VIDEO_DEVICE_SGI ) {
         return ar2VideoGetSizeSGI( vid->device.sgi, x, y );
@@ -842,6 +877,11 @@ AR_PIXEL_FORMAT ar2VideoGetPixelFormat( AR2VideoParamT *vid )
         return ar2VideoGetPixelFormatGStreamer( vid->device.gstreamer );
     }
 #endif
+#ifdef AR_INPUT_MMAL
+    if( vid->deviceType == AR_VIDEO_DEVICE_MMAL ) {
+        return ar2VideoGetPixelFormatMMAL( vid->device.mmal );
+    }
+#endif    
 #ifdef AR_INPUT_SGI
     if( vid->deviceType == AR_VIDEO_DEVICE_SGI ) {
         return ar2VideoGetPixelFormatSGI( vid->device.sgi );
@@ -933,6 +973,11 @@ AR2VideoBufferT *ar2VideoGetImage( AR2VideoParamT *vid )
         return ar2VideoGetImageGStreamer( vid->device.gstreamer );
     }
 #endif
+#ifdef AR_INPUT_MMAL
+    if( vid->deviceType == AR_VIDEO_DEVICE_MMAL ) {
+        return ar2VideoGetImageMMAL( vid->device.mmal );
+    }
+#endif    
 #ifdef AR_INPUT_SGI
     if( vid->deviceType == AR_VIDEO_DEVICE_SGI ) {
         return ar2VideoGetImageSGI( vid->device.sgi );
@@ -1028,6 +1073,11 @@ int ar2VideoCapStart( AR2VideoParamT *vid )
         return ar2VideoCapStartGStreamer( vid->device.gstreamer );
     }
 #endif
+#ifdef AR_INPUT_MMAL
+    if( vid->deviceType == AR_VIDEO_DEVICE_MMAL ) {
+        return ar2VideoCapStartMMAL( vid->device.mmal );
+    }
+#endif    
 #ifdef AR_INPUT_SGI
     if( vid->deviceType == AR_VIDEO_DEVICE_SGI ) {
         return ar2VideoCapStartSGI( vid->device.sgi );
@@ -1138,6 +1188,11 @@ int ar2VideoCapStop( AR2VideoParamT *vid )
         return ar2VideoCapStopGStreamer( vid->device.gstreamer );
     }
 #endif
+#ifdef AR_INPUT_MMAL
+    if( vid->deviceType == AR_VIDEO_DEVICE_MMAL ) {
+        return ar2VideoCapStopMMAL( vid->device.mmal );
+    }
+#endif    
 #ifdef AR_INPUT_SGI
     if( vid->deviceType == AR_VIDEO_DEVICE_SGI ) {
         return ar2VideoCapStopSGI( vid->device.sgi );
@@ -1248,6 +1303,11 @@ int ar2VideoGetParami( AR2VideoParamT *vid, int paramName, int *value )
         return ar2VideoGetParamiGStreamer( vid->device.gstreamer, paramName, value );
     }
 #endif
+#ifdef AR_INPUT_MMAL
+    if( vid->deviceType == AR_VIDEO_DEVICE_MMAL ) {
+        return ar2VideoGetParamiMMAL( vid->device.mmal, paramName, value );
+    }
+#endif    
 #ifdef AR_INPUT_SGI
     if( vid->deviceType == AR_VIDEO_DEVICE_SGI ) {
         return ar2VideoGetParamiSGI( vid->device.sgi, paramName, value );
@@ -1339,6 +1399,11 @@ int ar2VideoSetParami( AR2VideoParamT *vid, int paramName, int  value )
         return ar2VideoSetParamiGStreamer( vid->device.gstreamer, paramName, value );
     }
 #endif
+#ifdef AR_INPUT_MMAL
+    if( vid->deviceType == AR_VIDEO_DEVICE_MMAL ) {
+        return ar2VideoSetParamiMMAL( vid->device.mmal, paramName, value );
+    }
+#endif    
 #ifdef AR_INPUT_SGI
     if( vid->deviceType == AR_VIDEO_DEVICE_SGI ) {
         return ar2VideoSetParamiSGI( vid->device.sgi, paramName, value );
@@ -1430,6 +1495,11 @@ int ar2VideoGetParamd( AR2VideoParamT *vid, int paramName, double *value )
         return ar2VideoGetParamdGStreamer( vid->device.gstreamer, paramName, value );
     }
 #endif
+#ifdef AR_INPUT_MMAL
+    if( vid->deviceType == AR_VIDEO_DEVICE_MMAL ) {
+        return ar2VideoGetParamdMMAL( vid->device.mmal, paramName, value );
+    }
+#endif    
 #ifdef AR_INPUT_SGI
     if( vid->deviceType == AR_VIDEO_DEVICE_SGI ) {
         return ar2VideoGetParamdSGI( vid->device.sgi, paramName, value );
@@ -1521,6 +1591,11 @@ int ar2VideoSetParamd( AR2VideoParamT *vid, int paramName, double  value )
         return ar2VideoSetParamdGStreamer( vid->device.gstreamer, paramName, value );
     }
 #endif
+#ifdef AR_INPUT_MMAL
+    if( vid->deviceType == AR_VIDEO_DEVICE_MMAL ) {
+        return ar2VideoSetParamdMMAL( vid->device.mmal, paramName, value );
+    }
+#endif    
 #ifdef AR_INPUT_SGI
     if( vid->deviceType == AR_VIDEO_DEVICE_SGI ) {
         return ar2VideoSetParamdSGI( vid->device.sgi, paramName, value );

@@ -308,7 +308,9 @@ enum {
 #define AR_INPUT_GSTREAMER_PIXEL_FORMAT   AR_PIXEL_FORMAT_RGB 
 #endif
 
-
+#ifdef AR_INPUT_MMAL
+#define AR_INPUT_MMAL_PIXEL_FORMAT   AR_PIXEL_FORMAT_RGB 
+#endif
 
 /*------------------------------------------------------------*/
 /*  For SGI                                                   */
@@ -574,6 +576,8 @@ enum {
 #  define AR_DEFAULT_PIXEL_FORMAT   AR_INPUT_WINDOWS_DSVIDEOLIB_PIXEL_FORMAT
 #elif defined(AR_DEFAULT_INPUT_GSTREAMER)
 #  define AR_DEFAULT_PIXEL_FORMAT   AR_INPUT_GSTREAMER_PIXEL_FORMAT
+#elif defined(AR_DEFAULT_INPUT_MMAL)
+#  define AR_DEFAULT_PIXEL_FORMAT   AR_INPUT_MMAL_PIXEL_FORMAT
 #elif defined(AR_DEFAULT_INPUT_IPHONE)
 #  define AR_DEFAULT_PIXEL_FORMAT   AR_INPUT_IPHONE_DEFAULT_PIXEL_FORMAT
 #elif defined(AR_DEFAULT_INPUT_QUICKTIME7)

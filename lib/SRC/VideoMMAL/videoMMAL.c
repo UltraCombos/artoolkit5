@@ -1,8 +1,8 @@
 /*
- *	videoGStreamer.h
+ *	videoMMAL.c
  *  ARToolKit5
  *
- *  Video capture module utilising the GStreamer pipeline for AR Toolkit
+ *  Video capture module utilising the MMAL for AR Toolkit
  *
  *  This file is part of ARToolKit.
  *
@@ -34,269 +34,379 @@
  *  Copyright 2008-2015 ARToolworks, Inc.
  *  Copyright 2003-2008 Hartmut Seichter <http://www.technotecture.com>
  *
- *  Author(s): Hartmut Seichter, Philip Lamb
+ *  Author(s): the78est herry
  *
  */
-
+f
 #include <AR/video.h>
-
-/* include GLib for GStreamer */
-#include <glib.h>
-
-/* include GStreamer itself */
-#include <gst/gst.h>
 
 /* using memcpy */
 #include <string.h>
 
+#include "interface/mmal/mmal.h"
+#include "interface/mmal/mmal_logging.h"
+#include "interface/mmal/mmal_buffer.h"
+#include "interface/mmal/util/mmal_util.h"
+#include "interface/mmal/util/mmal_util_params.h"
+#include "interface/mmal/util/mmal_default_components.h"
+#include "interface/mmal/util/mmal_connection.h"
 
-#define GSTREAMER_TEST_LAUNCH_CFG "videotestsrc ! video/x-raw-rgb,bpp=24 ! identity name=artoolkit sync=true ! fakesink"
 
-struct _AR2VideoParamGStreamerT {
-	
+#define MMAL_CAMERA_PREVIEW_PORT 0
+#define MMAL_CAMERA_VIDEO_PORT 1
+#define MMAL_CAMERA_CAPTURE_PORT 2
+
+//#define GSTREAMER_TEST_LAUNCH_CFG "videotestsrc ! video/x-raw-rgb,bpp=24 ! identity name=artoolkit sync=true ! fakesink"
+
+struct _AR2VideoParamMMALT 
+{	
 	/* size and pixel format of the image */
-	int	width, height;
+	int	width;
+	int height;
     AR_PIXEL_FORMAT pixelFormat;
 
 	/* the actual video buffer */
-    ARUint8             *videoBuffer;
-    AR2VideoBufferT arVideoBuffer;
-
-	/* GStreamer pipeline */
-	GstElement *pipeline;
-	
-	/* GStreamer identity needed for probing */
-	GstElement *probe;
-
+    ARUint8*			videoBuffer;
+    AR2VideoBufferT 	arVideoBuffer;
+    
+    MMAL_COMPONENT_T* 	p_camera;
+    MMAL_PORT_T*		p_preview_port;
+    MMAL_QUEUE_T*		p_video_queue;
+    MMAL_POOL_T* 		p_video_pool;            
 };
 
+static AR2VideoParamMMALT* g_p_vid_cur = NULL;
 
-static gboolean
-cb_have_data (GstPad    *pad,
-	      GstBuffer *buffer,
-	      gpointer   u_data)
+static void gf_video_output_callback(MMAL_PORT_T *port, MMAL_BUFFER_HEADER_T *buffer)
 {
-
- 	const GstCaps *caps;
-	GstStructure *str;
+	MMAL_STATUS_T ret;
+	MMAL_BUFFER_HEADER_T* new_buffer;
+	MMAL_BUFFER_HEADER_T* existing_buffer;
 	
-	gint width,height;
-	gdouble rate;
-	
-	AR2VideoParamGStreamerT *vid = (AR2VideoParamGStreamerT *)u_data;
+	//printf("video_output_callback\n\n");
+	//printf("buffer info: alloc_size = %d, length = %d\n", buffer->alloc_size, buffer->length);
 
-	if (vid == NULL) return FALSE;
-	
-
-	/* only do initialy for the buffer */
-	if (vid->videoBuffer == NULL && buffer) 
+	//to handle the user not reading frames, remove and return any pre-existing ones
+	if(mmal_queue_length(g_p_vid_cur->p_video_queue) >= 2)
 	{
-		g_print("libARvideo error! Buffer not allocated\n");		
+		existing_buffer = mmal_queue_get(g_p_vid_cur->p_video_queue);
+		if(existing_buffer)
+		{
+			mmal_buffer_header_release(existing_buffer);
+			if (port->is_enabled)
+			{
+				new_buffer = mmal_queue_get(g_p_vid_cur->p_video_pool->queue);
+				if (new_buffer)
+				{
+					ret = mmal_port_send_buffer(port, new_buffer);
+				}
+				
+				if (!new_buffer || ret != MMAL_SUCCESS)
+				{
+					printf("Unable to return a buffer to the video port\n\n");
+				}
+			}
+		}
 	}
 
-	if (vid->videoBuffer)
-	{
-		memcpy(vid->videoBuffer, buffer->data, buffer->size);		
-	}
-	
-	return TRUE;
+	//add the buffer to the output queue
+	mmal_queue_put(g_p_vid_cur->p_video_queue, buffer);
+
+	//printf("Video buffer callback, output queue len=%d\n\n", mmal_queue_length(OutputQueue));
 }
 
-int
-ar2VideoDispOptionGStreamer( void )
+static void gf_camera_control_callback(MMAL_PORT_T *port, MMAL_BUFFER_HEADER_T *buffer)
+{
+	printf("camera_control_callback\n\n");
+	return;
+}
+
+static void gf_cinit_video_param(AR2VideoParamMMALT* p_vid)
+{
+	p_vid->p_camera 		= NULL;
+	p_vid->p_preview_port 	= NULL;
+	p_vid->p_video_queue 	= NULL;
+	p_vid->p_video_pool		= NULL;
+	return;
+}
+
+static int gf_start_camera(AR2VideoParamMMALT* p_vid)
+{
+	MMAL_STATUS_T ret;
+	int num ;
+	int c;
+	MMAL_BUFFER_HEADER_T* buffer;
+	
+	ret = mmal_port_enable(p_vid->p_preview_port, gf_video_output_callback);
+	if (ret != MMAL_SUCCESS)
+	{
+		return -1;
+	}
+
+	ret = mmal_component_enable(p_vid->p_camera);
+	if (ret != MMAL_SUCCESS)
+	{
+		return -1;
+	}
+
+	num = mmal_queue_length(p_vid->p_video_pool->queue);
+	printf("video_pool:queue num =%d\n", num);
+	for (c = 0; c < num; ++c)
+	{
+		buffer = mmal_queue_get(p_vid->p_video_pool->queue);
+		if (!buffer)
+		{
+			printf("Unable to get a required buffer %d from pool queue\n\n", c);
+		}
+		else if (mmal_port_send_buffer(p_vid->p_preview_port, buffer) != MMAL_SUCCESS)
+		{
+			printf("Unable to send a buffer to port (%d)\n\n", c);
+		}
+	}
+	return 0;
+}
+
+static int gf_stop_camera(AR2VideoParamMMALT* p_vid)
+{
+	MMAL_STATUS_T ret;
+	ret = mmal_component_disable(p_vid->p_camera);
+	if (ret != MMAL_SUCCESS)
+	{
+		return -1;
+	}
+
+	ret = mmal_port_disable(p_vid->p_preview_port);
+	if (ret != MMAL_SUCCESS)
+	{
+		return -1;
+	}
+	
+	return 0;
+}
+
+static int gf_read_camera_frame(AR2VideoParamMMALT* p_vid)
+{
+	MMAL_BUFFER_HEADER_T* buf;
+	MMAL_STATUS_T status;
+	MMAL_BUFFER_HEADER_T *new_buffer;	
+	
+	buf = mmal_queue_get(p_vid->p_video_queue)
+	if(!buf)
+	{
+		return 0;
+	}
+		
+	memcpy(my_buffer, buf->data, buf->length);
+	mmal_buffer_header_release(buf);
+	
+	if(g_p_preview_port->is_enabled)
+	
+		new_buffer = mmal_queue_get(g_p_video_pool->queue);
+		if (new_buffer)
+		{
+			status = mmal_port_send_buffer(g_p_preview_port, new_buffer);
+		}
+	
+		if (!new_buffer || status != MMAL_SUCCESS)
+		{
+			printf("Unable to return a buffer to the video port\n\n");
+		}
+	}
+	
+	return true;
+
+}
+
+static void gf_destory_camera(AR2VideoParamMMALT* p_vid)
+{
+	if (p_vid->p_video_queue)
+	{
+		mmal_queue_destroy(p_vid->p_video_queue);
+		p_vid->p_video_queue = NULL;
+	}
+
+	if (p_vid->p_video_pool)
+	{
+		mmal_port_pool_destroy(p_vid->p_preview_port, p_vid->p_video_pool);
+		p_vid->p_video_pool = NULL;
+	}
+
+	if (p_vid->p_camera)
+	{
+		mmal_component_destroy(p_vid->p_camera);
+		p_vid->p_camera = NULL;
+	}
+	
+	g_p_vid_cur = NULL;
+	return;
+}
+
+static int gf_create_camera(AR2VideoParamMMALT* p_vid, int width, int height, int frame_rate)
+{
+	MMAL_STATUS_T ret;
+	MMAL_PARAMETER_CAMERA_CONFIG_T cam_config;
+	MMAL_ES_FORMAT_T* p_format;
+	
+	ret = mmal_component_create(MMAL_COMPONENT_DEFAULT_CAMERA, &p_vid->p_camera);
+	if (ret != MMAL_SUCCESS)
+	{
+		return -1;
+	}
+
+	do
+	{
+		if (p_vid->p_camera->output_num == 0)
+		{
+			break;
+		}
+
+		printf("num =%d\n", p_vid->p_camera->output_num);
+
+		p_vid->p_preview_port 	= p_vid->p_camera->output[MMAL_CAMERA_PREVIEW_PORT];
+
+		ret = mmal_port_enable(p_vid->p_camera->control, gf_camera_control_callback);
+		if (ret != MMAL_SUCCESS)
+		{
+			break;
+		}
+
+		cam_config.hdr.id = MMAL_PARAMETER_CAMERA_CONFIG;
+		cam_config.hdr.size = sizeof(cam_config);
+		cam_config.max_stills_w = width;
+		cam_config.max_stills_h = height;
+		cam_config.stills_yuv422 = 0;
+		cam_config.one_shot_stills = 0;
+		cam_config.max_preview_video_w = width;
+		cam_config.max_preview_video_h = height;
+		cam_config.num_preview_video_frames = 3;
+		cam_config.stills_capture_circular_buffer_height = 0;
+		cam_config.fast_preview_resume = 0;
+		cam_config.use_stc_timestamp = MMAL_PARAM_TIMESTAMP_MODE_RESET_STC;
+
+		ret = mmal_port_parameter_set(p_vid->p_camera->control, &cam_config.hdr);
+		if (ret != MMAL_SUCCESS)
+		{
+			break;
+		}
+
+		p_format = p_vid->p_preview_port->format;
+		p_format->encoding = MMAL_ENCODING_RGB24;
+		p_format->encoding_variant = MMAL_ENCODING_VARIANT_H264_DEFAULT;
+		p_format->es->video.width = width;
+		p_format->es->video.height = height;
+		p_format->es->video.crop.x = 0;
+		p_format->es->video.crop.y = 0;
+		p_format->es->video.crop.width = width;
+		p_format->es->video.crop.height = height;
+		p_format->es->video.frame_rate.num = frame_rate;
+		p_format->es->video.frame_rate.den = 1;
+		
+		ret = mmal_port_format_commit(p_vid->p_preview_port);
+		if (ret != MMAL_SUCCESS)
+		{
+			break;
+		}
+
+		ret = mmal_port_parameter_set_boolean(p_vid->p_preview_port, MMAL_PARAMETER_ZERO_COPY, MMAL_TRUE);
+		if (ret != MMAL_SUCCESS)
+		{
+			gf_destory_camera();
+			return false;
+		}
+
+		p_vid->p_preview_port->buffer_num = 8;
+		p_vid->p_preview_port->buffer_size = p_vid->p_preview_port->buffer_size_recommended;
+		printf("buffer_size =%d\n", p_vid->p_preview_port->buffer_size);
+
+		p_vid->p_video_pool = mmal_port_pool_create(p_vid->p_preview_port, p_vid->p_preview_port->buffer_num, p_vid->p_preview_port->buffer_size);
+		if (!p_vid->p_video_pool)
+		{
+			break;
+		}
+
+		p_vid->p_video_queue = mmal_queue_create();
+		if (!p_vid->p_video_queue)
+		{
+			break;
+		}
+		
+		p_vid->width 		= width;
+		p_vid->height 		= height;
+		vid->pixelFormat 	= AR_INPUT_MMAL_PIXEL_FORMAT
+		
+		g_p_vid_cur = p_vid;
+		return 0;		
+		
+	} while(0);
+	//Failed
+	
+	gf_destory_camera(p_vid);
+	return -1;
+}
+
+int ar2VideoDispOptionMMAL(void)
 {
     return 0;
 }
 
-static void video_caps_notify(GObject* obj, GParamSpec* pspec, gpointer data) {
-
-	const GstCaps *caps;
-	GstStructure *str;
-	
-	gint width = 0, height = 0, framerate_n = 0, framerate_d = 0;
-	gdouble framerate = 0.0; //COVHI10449
-	
-	AR2VideoParamGStreamerT *vid = (AR2VideoParamGStreamerT*)data;
-
-	caps = gst_pad_get_negotiated_caps((GstPad*)obj);
-
-	if (caps) {
-
-		str=gst_caps_get_structure(caps,0);
-
-		/* Get some data about the frame */
-		gst_structure_get_int(str, "width", &width);
-		gst_structure_get_int(str, "height", &height);
-        if (gst_structure_get_fraction(str, "framerate", &framerate_n, &framerate_d)) {
-            if (framerate_d) framerate = (gdouble)framerate_n / (gdouble)framerate_d;
-        }
-		
-		g_print("libARvideo: GStreamer negotiated %dx%d@%.3ffps\n", width, height, framerate);
-
-		vid->width = width;
-		vid->height = height;
-		vid->pixelFormat = AR_INPUT_GSTREAMER_PIXEL_FORMAT;
-
-		g_print("libARvideo: allocating %d bytes\n",(vid->width * vid->height * arVideoUtilGetPixelSize(vid->pixelFormat)));
-
-		/* allocate the buffer */	
-		arMalloc(vid->videoBuffer, ARUint8, (vid->width * vid->height * arVideoUtilGetPixelSize(vid->pixelFormat)) );
-	}
-}
-
-AR2VideoParamGStreamerT* ar2VideoOpenGStreamer( const char *config_in ) {
-
-    const char *config = NULL;
-    AR2VideoParamGStreamerT *vid = NULL;
-    GError *error = NULL;
+AR2VideoParamMMALT* ar2VideoOpenMMAL( const char *config_in ) 
+{
+    const char *config 		= NULL;
+    AR2VideoParamMMALT*	vid = NULL;
     int i;
-    GstPad *pad, *peerpad;
-    GstXML *xml;
-    GstStateChangeReturn _ret;
-    int is_live;
+    int ret;
 
     /* setting up defaults - we fall back to the TV test signal simulator */
+    /*
     if (!config_in) config = GSTREAMER_TEST_LAUNCH_CFG;
     else if (!config_in[0]) config = GSTREAMER_TEST_LAUNCH_CFG;
     else config = config_in;
-
-    /* initialise GStreamer */
-    gst_init(0,0);
+	*/
 
     /* init ART structure */
-    arMalloc( vid, AR2VideoParamGStreamerT, 1 );
-
+    arMalloc(vid, AR2VideoParamMMALT, 1);
+    
     /* initialise buffer */
     vid->videoBuffer = NULL;
 
     /* report the current version and features */
-    g_print ("libARvideo: %s\n", gst_version_string());
+    //g_print ("libARvideo: %s\n", gst_version_string());
 
-#if 0
-    xml = gst_xml_new();
-
-    /* first check if config contains an xml file */
-    if (gst_xml_parse_file(xml,config,NULL))
+    gf_init_video_param(vid);
+    ret = gf_create_camera(vid, 640, 480, 30);
+    if (ret < 0)
     {
-        /* parse the pipe definition */
-    } else
-    {
-        vid->pipeline = gst_xml_get_element(xml,"pipeline");
+    	free(vid);
+    	return NULL;
     }
-#endif
-
-    vid->pipeline = gst_parse_launch (config, &error);
-
-    if (!vid->pipeline) {
-        g_print ("Parse error: %s\n", error->message);
-        //COVHI10365
-        free(vid);
-        return (NULL);
-    };
-
-    /* get the video sink */
-    vid->probe = gst_bin_get_by_name(GST_BIN(vid->pipeline), "artoolkit");
-
-    if (!vid->probe) {
-        g_print("Pipeline has no element named 'artoolkit'!\n");
-        free(vid);
-        return (NULL);
-    };
-
-    /* get the pad from the probe (the source pad seems to be more flexible) */
-    pad = gst_element_get_pad (vid->probe, "src");
-
-    /* get the peerpad aka sink */
-    peerpad = gst_pad_get_peer(pad);
-
-    /* install the probe callback for capturing */
-    gst_pad_add_buffer_probe (pad, G_CALLBACK (cb_have_data), vid);
-
-    g_signal_connect(pad, "notify::caps", G_CALLBACK(video_caps_notify), vid);
-
-    /* Needed to fill the information for ARVidInfo */
-    gst_element_set_state (vid->pipeline, GST_STATE_READY);
-
-    /* wait until it's up and running or failed. COVHI10442 */
-    if (GST_STATE_CHANGE_FAILURE == (_ret = gst_element_get_state(vid->pipeline, NULL, NULL, -1))) {
-        g_error ("libARvideo: failed to put GStreamer into READY state!\n");
-    } else {
-        is_live = (_ret == GST_STATE_CHANGE_NO_PREROLL) ? 1 : 0;
-        g_print ("libARvideo: GStreamer pipeline is READY!\n");
-    }
-
-    /* Needed to fill the information for ARVidInfo */
-    _ret = gst_element_set_state(vid->pipeline, GST_STATE_PAUSED);
-
-    is_live = (_ret == GST_STATE_CHANGE_NO_PREROLL) ? 1 : 0;
-
-    /* wait until it's up and running or failed */
-    if (gst_element_get_state (vid->pipeline, NULL, NULL, -1) == GST_STATE_CHANGE_FAILURE) {
-        g_error ("libARvideo: failed to put GStreamer into PAUSED state!\n");
-    } else {
-        g_print ("libARvideo: GStreamer pipeline is PAUSED.\n",is_live);
-    }
-
-    /* dismiss the pad */
-    gst_object_unref (pad);
-
-    /* dismiss the peer-pad */
-    gst_object_unref (peerpad);
-
-    /* now preroll for live sources */
-    if (is_live) {
-
-        g_print ("libARvdeo: need special prerolling for live sources\n");
-
-        /* set playing state of the pipeline */
-        gst_element_set_state (vid->pipeline, GST_STATE_PLAYING);
-
-        /* wait until it's up and running or failed */
-        if (gst_element_get_state (vid->pipeline, NULL, NULL, -1) == GST_STATE_CHANGE_FAILURE) {
-            g_error ("libARvideo: failed to put GStreamer into PLAYING state!\n");
-        } else {
-            g_print ("libARvideo: GStreamer pipeline is PLAYING.\n");
-        }
-
-        /* set playing state of the pipeline */
-        gst_element_set_state (vid->pipeline, GST_STATE_PAUSED);
-
-        /* wait until it's up and running or failed */
-        if (gst_element_get_state (vid->pipeline, NULL, NULL, -1) == GST_STATE_CHANGE_FAILURE) {
-            g_error ("libARvideo: failed to put GStreamer into PAUSED state!\n");
-        } else {
-            g_print ("libARvideo: GStreamer pipeline is PAUSED.\n");
-        }
-    }
-
-#if 0
-    /* write the bin to stdout */
-    gst_xml_write_file (GST_ELEMENT (vid->pipeline), stdout);
-#endif
+    
+	arMalloc(vid->videoBuffer, ARUint8, (vid->width * vid->height * arVideoUtilGetPixelSize(vid->pixelFormat)));
 
     /* return the video handle */
     return (vid);
-}; //end: AR2VideoParamGStreamerT* ar2VideoOpenGStreamer(const char *config_in)
+}
 
-int 
-ar2VideoCloseGStreamer(AR2VideoParamGStreamerT *vid) {
-
-    if (!vid) return (-1);
+int ar2VideoCloseMMAL(AR2VideoParamMMALT* p_vid) 
+{
+    if (!p_vid) 
+    {
+    	return (-1);
+    }
     
 	/* stop the pipeline */
-	gst_element_set_state (vid->pipeline, GST_STATE_NULL);
+	gf_stop_camera(p_vid);
 	
 	/* free the pipeline handle */
-	gst_object_unref (GST_OBJECT (vid->pipeline));
-
+	gf_destory_camera(p_vid);
 	return 0;
 }
 
-
-int
-ar2VideoGetIdGStreamer( AR2VideoParamGStreamerT *vid, ARUint32 *id0, ARUint32 *id1 )
+int ar2VideoGetIdMMAL (AR2VideoParamMMALT* p_vid, ARUint32 *id0, ARUint32 *id1)
 {
-    if (!vid) return (-1);
+    if (!p_vid) 
+    {	
+    	return (-1);
+    }
 	
     *id0 = 0;
     *id1 = 0;
@@ -304,92 +414,78 @@ ar2VideoGetIdGStreamer( AR2VideoParamGStreamerT *vid, ARUint32 *id0, ARUint32 *i
     return (-1);
 }
 
-int
-ar2VideoGetSizeGStreamer(AR2VideoParamGStreamerT *vid, int *x, int *y ) 
+int ar2VideoGetSizeMMAL(AR2VideoParamMMALT* p_vid, int* x, int* y) 
 {
-    if (!vid) return (-1);
+    if (!p_vid) 
+    {
+    	return (-1);
+    }
     
     *x = vid->width; // width of your static image
     *y = vid->height; // height of your static image
     return (0);
 }
 
-AR_PIXEL_FORMAT
-ar2VideoGetPixelFormatGStreamer( AR2VideoParamGStreamerT *vid )
+AR_PIXEL_FORMAT ar2VideoGetPixelFormatMMAL(AR2VideoParamMMALT* p_vid)
 {
-    if (!vid) return (AR_PIXEL_FORMAT_INVALID);
+    if (!p_vid)
+    {
+    	return (AR_PIXEL_FORMAT_INVALID);
+    }
     
     return (vid->pixelFormat);
 }
 
-AR2VideoBufferT * 
-ar2VideoGetImageGStreamer(AR2VideoParamGStreamerT *vid)
+AR2VideoBufferT* ar2VideoGetImageMMAL(AR2VideoParamMMALT* p_vid)
 {
-    if (!vid) return (NULL);
+	int ret;
+    if (!p_vid) 
+    {
+    	return (NULL);
+    }
     
+    gf_read_camera_frame(p_vid);
+		
 	/* just return the bare video buffer */
     (vid->arVideoBuffer).buff = vid->videoBuffer;
     (vid->arVideoBuffer).fillFlag = 1;
+    
     return (&(vid->arVideoBuffer));
 }
 
-int 
-ar2VideoCapStartGStreamer(AR2VideoParamGStreamerT *vid) 
+int ar2VideoCapStartMMAL(AR2VideoParamMMALT* p_vid) 
 {
-    if (!vid) return (-1);
-
-	GstStateChangeReturn _ret;
-
-	/* set playing state of the pipeline */
-	_ret = gst_element_set_state (vid->pipeline, GST_STATE_PLAYING);
-
-	if (_ret == GST_STATE_CHANGE_ASYNC) 
-	{
-
-		/* wait until it's up and running or failed */
-		if (gst_element_get_state (vid->pipeline, 
-				NULL, NULL, GST_CLOCK_TIME_NONE) == GST_STATE_CHANGE_FAILURE) 
-		{
-    		g_error ("libARvideo: failed to put GStreamer into PLAYING state!\n");    	
-    		return -1;
-  
-        } else {
-			g_print ("libARvideo: GStreamer pipeline is PLAYING.\n");
-		} 
-	}
-	return 0; 
-}
-
-int 
-ar2VideoCapStopGStreamer(AR2VideoParamGStreamerT *vid)
-{
-    if (!vid) return (-1);
-    
-	/* stop pipeline */
-    if (gst_element_set_state (vid->pipeline, GST_STATE_PAUSED) == GST_STATE_CHANGE_FAILURE)
+    if (!p_vid) 
     {
-        g_error ("libARvideo: failed to put GStreamer into PAUSED state!\n");    	
-        return -1;
-        
-    } else {
-        g_print ("libARvideo: GStreamer pipeline is PAUSED.\n");
-    } 
-    return (0);
+    	return (-1);
+    }
+
+    return gf_start_camera(p_vid);
 }
 
-int ar2VideoGetParamiGStreamer( AR2VideoParamGStreamerT *vid, int paramName, int *value )
+int ar2VideoCapStopMMAL(AR2VideoParamMMALT* p_vid)
+{
+    if (!p_vid) 
+    {
+    	return (-1);
+    }
+    
+    return gf_stop_camera(p_vid);
+}
+
+int ar2VideoGetParamiMMAL( AR2VideoParamMMALT *vid, int paramName, int *value )
 {
     return -1;
 }
-int ar2VideoSetParamiGStreamer( AR2VideoParamGStreamerT *vid, int paramName, int  value )
+int ar2VideoSetParamiMMAL( AR2VideoParamMMALT *vid, int paramName, int  value )
 {
     return -1;
 }
-int ar2VideoGetParamdGStreamer( AR2VideoParamGStreamerT *vid, int paramName, double *value )
+int ar2VideoGetParamdMMAL( AR2VideoParamMMALT *vid, int paramName, double *value )
 {
     return -1;
 }
-int ar2VideoSetParamdGStreamer( AR2VideoParamGStreamerT *vid, int paramName, double  value )
+int ar2VideoSetParamdMMAL( AR2VideoParamMMALT *vid, int paramName, double  value )
 {
     return -1;
 }
