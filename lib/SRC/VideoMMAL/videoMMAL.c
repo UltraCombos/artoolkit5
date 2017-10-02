@@ -37,11 +37,11 @@
  *  Author(s): the78est herry
  *
  */
-f
-#include <AR/video.h>
 
 /* using memcpy */
 #include <string.h>
+
+#include <AR/video.h>
 
 #include "interface/mmal/mmal.h"
 #include "interface/mmal/mmal_logging.h"
@@ -190,21 +190,21 @@ static int gf_read_camera_frame(AR2VideoParamMMALT* p_vid)
 	MMAL_STATUS_T status;
 	MMAL_BUFFER_HEADER_T *new_buffer;	
 	
-	buf = mmal_queue_get(p_vid->p_video_queue)
+	buf = mmal_queue_get(p_vid->p_video_queue);
 	if(!buf)
 	{
 		return 0;
 	}
 		
-	memcpy(my_buffer, buf->data, buf->length);
+	memcpy(p_vid->videoBuffer, buf->data, buf->length);
 	mmal_buffer_header_release(buf);
 	
-	if(g_p_preview_port->is_enabled)
-	
-		new_buffer = mmal_queue_get(g_p_video_pool->queue);
+	if(p_vid->p_preview_port->is_enabled)
+	{
+		new_buffer = mmal_queue_get(p_vid->p_video_pool->queue);
 		if (new_buffer)
 		{
-			status = mmal_port_send_buffer(g_p_preview_port, new_buffer);
+			status = mmal_port_send_buffer(p_vid->p_preview_port, new_buffer);
 		}
 	
 		if (!new_buffer || status != MMAL_SUCCESS)
@@ -213,8 +213,7 @@ static int gf_read_camera_frame(AR2VideoParamMMALT* p_vid)
 		}
 	}
 	
-	return true;
-
+	return 1;
 }
 
 static void gf_destory_camera(AR2VideoParamMMALT* p_vid)
@@ -310,8 +309,7 @@ static int gf_create_camera(AR2VideoParamMMALT* p_vid, int width, int height, in
 		ret = mmal_port_parameter_set_boolean(p_vid->p_preview_port, MMAL_PARAMETER_ZERO_COPY, MMAL_TRUE);
 		if (ret != MMAL_SUCCESS)
 		{
-			gf_destory_camera();
-			return false;
+			break;
 		}
 
 		p_vid->p_preview_port->buffer_num = 8;
@@ -332,7 +330,7 @@ static int gf_create_camera(AR2VideoParamMMALT* p_vid, int width, int height, in
 		
 		p_vid->width 		= width;
 		p_vid->height 		= height;
-		vid->pixelFormat 	= AR_INPUT_MMAL_PIXEL_FORMAT
+		p_vid->pixelFormat 	= AR_INPUT_MMAL_PIXEL_FORMAT;
 		
 		g_p_vid_cur = p_vid;
 		return 0;		
@@ -421,8 +419,8 @@ int ar2VideoGetSizeMMAL(AR2VideoParamMMALT* p_vid, int* x, int* y)
     	return (-1);
     }
     
-    *x = vid->width; // width of your static image
-    *y = vid->height; // height of your static image
+    *x = p_vid->width; // width of your static image
+    *y = p_vid->height; // height of your static image
     return (0);
 }
 
@@ -433,7 +431,7 @@ AR_PIXEL_FORMAT ar2VideoGetPixelFormatMMAL(AR2VideoParamMMALT* p_vid)
     	return (AR_PIXEL_FORMAT_INVALID);
     }
     
-    return (vid->pixelFormat);
+    return (p_vid->pixelFormat);
 }
 
 AR2VideoBufferT* ar2VideoGetImageMMAL(AR2VideoParamMMALT* p_vid)
@@ -447,10 +445,10 @@ AR2VideoBufferT* ar2VideoGetImageMMAL(AR2VideoParamMMALT* p_vid)
     gf_read_camera_frame(p_vid);
 		
 	/* just return the bare video buffer */
-    (vid->arVideoBuffer).buff = vid->videoBuffer;
-    (vid->arVideoBuffer).fillFlag = 1;
+    (p_vid->arVideoBuffer).buff = p_vid->videoBuffer;
+    (p_vid->arVideoBuffer).fillFlag = 1;
     
-    return (&(vid->arVideoBuffer));
+    return (&(p_vid->arVideoBuffer));
 }
 
 int ar2VideoCapStartMMAL(AR2VideoParamMMALT* p_vid) 
