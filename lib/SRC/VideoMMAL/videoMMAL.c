@@ -121,7 +121,7 @@ static void gf_camera_control_callback(MMAL_PORT_T *port, MMAL_BUFFER_HEADER_T *
 	return;
 }
 
-static void gf_cinit_video_param(AR2VideoParamMMALT* p_vid)
+static void gf_init_video_param(AR2VideoParamMMALT* p_vid)
 {
 	p_vid->p_camera 		= NULL;
 	p_vid->p_preview_port 	= NULL;

@@ -64,6 +64,7 @@ MDIR=".                              \
       lib/SRC/VideoQuickTime         \
       lib/SRC/VideoQuickTime7        \
       lib/SRC/VideoGStreamer         \
+      lib/SRC/VideoMMAL              \
       lib/SRC/ARosg                  \
       lib/SRC/ARvrml                 \
       lib/SRC/Eden                   \
@@ -412,9 +413,11 @@ then
     fi
     if [ "$INPUT_MMAL" = "y" ]
     then
-        MMAL_CFLAGS="-I/opt/vc/include/interface"
+        MMAL_CFLAGS="-I/opt/vc/include"
+	MMAL_LDFLAG="-L/opt/vc/lib"
 	MMAL_LIBS="-lmmal -lmmal_core -lmmal_util"
         CFLAG="$CFLAG $MMAL_CFLAGS"
+	LDFLAG="$LDFLAG $MMAL_LDFLAG"
         LIBS="$LIBS $MMAL_LIBS"
     fi
     if [ "$INPUT_CAM1394" = "y" ]
@@ -727,7 +730,7 @@ fi
 if [ "$INPUT_MMAL" = "y" ]
 then
 cat >> $SED <<EOF
-s/#(cd VideoMMAL;    make -f Makefile)/(cd VideoMMAL;    make -f Makefile)/
+s/#(cd VideoMMAL;         make -f Makefile)/(cd VideoMMAL;         make -f Makefile)/
 EOF
 fi
 
