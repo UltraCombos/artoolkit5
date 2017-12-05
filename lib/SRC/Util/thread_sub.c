@@ -48,7 +48,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <thread_sub.h>
-//#define ARUTIL_DISABLE_PTHREADS // Uncomment to disable pthreads support.
+#define ARUTIL_DISABLE_PTHREADS // Uncomment to disable pthreads support.
 
 #if !defined(_WINRT) && !defined(ARUTIL_DISABLE_PTHREADS)
 #  include <pthread.h>

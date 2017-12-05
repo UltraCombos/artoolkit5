@@ -64,7 +64,7 @@
 #include <stdlib.h>
 #include <math.h>
 #include <string.h>
-#if !defined(_WINRT)
+#if !defined(_WINRT) && !defined(_WIN32)
 #  include <pthread.h>
 #else
 #  define pthread_mutex_t               CRITICAL_SECTION
