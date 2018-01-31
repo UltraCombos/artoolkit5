@@ -353,13 +353,42 @@ AR2VideoParamMMALT* ar2VideoOpenMMAL( const char *config_in )
     AR2VideoParamMMALT*	vid = NULL;
     int i;
     int ret;
+    int arg[3];
+    char buf[128];    
+    char* pch = NULL;
+    
+    memset(buf, 0x00, sizeof(buf));
+    memset(arg, 0x00, sizeof(arg));
 
     /* setting up defaults - we fall back to the TV test signal simulator */
-    /*
-    if (!config_in) config = GSTREAMER_TEST_LAUNCH_CFG;
-    else if (!config_in[0]) config = GSTREAMER_TEST_LAUNCH_CFG;
-    else config = config_in;
-	*/
+    if (config_in != NULL)
+    {
+        strncpy(buf, config_in, sizeof(buf) - 1);
+
+        pch = strtok(buf, "x");
+	i = 0;
+	while(i < 3)
+	{
+            if (pch == NULL)
+            {
+                break;
+            }
+
+            arg[i++] = atoi(pch);
+            pch = strtok(NULL, "x");
+	}       
+    }
+    
+    if (arg[0] == 0 || arg[1] == 0)
+    {
+        arg[0] = 640;
+        arg[1] = 480;
+    }
+
+    if (arg[2] == 0)
+    {
+        arg[2] = 30;
+    }
 
     /* init ART structure */
     arMalloc(vid, AR2VideoParamMMALT, 1);
@@ -371,7 +400,7 @@ AR2VideoParamMMALT* ar2VideoOpenMMAL( const char *config_in )
     //g_print ("libARvideo: %s\n", gst_version_string());
 
     gf_init_video_param(vid);
-    ret = gf_create_camera(vid, 640, 480, 30);
+    ret = gf_create_camera(vid, arg[0], arg[1], arg[2]);
     if (ret < 0)
     {
     	free(vid);
